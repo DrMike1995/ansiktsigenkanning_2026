@@ -1,0 +1,1041 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black">
+<meta name="apple-mobile-web-app-title" content="FaceTracker">
+<title>FaceTracker</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@700;800&display=swap" rel="stylesheet">
+<style>
+:root {
+  --bg:       #080b0f;
+  --bg2:      #0e1217;
+  --bg3:      #151a20;
+  --bg4:      #1c2330;
+  --border:   rgba(255,255,255,0.07);
+  --border2:  rgba(255,255,255,0.12);
+  --accent:   #00e5ff;
+  --accent2:  #7c3aed;
+  --green:    #00ff88;
+  --red:      #ff3b5c;
+  --yellow:   #ffd60a;
+  --text:     #c8d3e0;
+  --dim:      #4a5568;
+  --mono:     'DM Mono', monospace;
+  --display:  'Syne', sans-serif;
+  --safe-top: env(safe-area-inset-top, 0px);
+  --safe-bot: env(safe-area-inset-bottom, 0px);
+}
+
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html { height: -webkit-fill-available; }
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--mono);
+  min-height: 100vh;
+  min-height: -webkit-fill-available;
+  overflow-x: hidden;
+  -webkit-font-smoothing: antialiased;
+  overscroll-behavior: none;
+}
+
+/* ── Header ─────────────────────────────────────────────── */
+header {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  padding: calc(var(--safe-top) + 10px) 16px 10px;
+  background: rgba(8,11,15,0.92);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.logo {
+  font-family: var(--display);
+  font-size: 20px;
+  font-weight: 800;
+  letter-spacing: -0.5px;
+  color: #fff;
+}
+.logo span { color: var(--accent); }
+
+#status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 11px;
+  color: var(--dim);
+  letter-spacing: 0.5px;
+  background: var(--bg3);
+  border: 1px solid var(--border);
+  padding: 5px 12px;
+  border-radius: 20px;
+}
+
+#status-dot {
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--dim);
+  flex-shrink: 0;
+}
+
+.s-loading #status-dot { background: var(--yellow); animation: blink .6s step-end infinite; }
+.s-ready   #status-dot { background: var(--green); }
+.s-active  #status-dot { background: var(--accent); animation: pulse 1.4s ease-in-out infinite; }
+.s-error   #status-dot { background: var(--red); }
+
+@keyframes pulse { 0%,100%{opacity:1;transform:scale(1)} 50%{opacity:.4;transform:scale(.8)} }
+@keyframes blink { 50%{opacity:0} }
+
+/* ── Video section ───────────────────────────────────────── */
+.video-section {
+  position: relative;
+  width: 100%;
+  background: #000;
+  overflow: hidden;
+}
+
+#video {
+  width: 100%;
+  display: block;
+  transform: scaleX(-1);
+  -webkit-transform: scaleX(-1);
+  max-height: 55vh;
+  object-fit: cover;
+}
+
+#canvas {
+  position: absolute;
+  top: 0; left: 0;
+  width: 100%; height: 100%;
+  pointer-events: none;
+  transform: scaleX(-1);
+  -webkit-transform: scaleX(-1);
+}
+
+/* Loading overlay */
+#boot {
+  position: absolute;
+  inset: 0;
+  background: var(--bg);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 20px;
+  z-index: 20;
+  transition: opacity .5s;
+}
+
+#boot.hidden { opacity: 0; pointer-events: none; }
+
+.boot-icon {
+  width: 64px; height: 64px;
+  border: 2px solid var(--border2);
+  border-top-color: var(--accent);
+  border-radius: 50%;
+  animation: spin .9s linear infinite;
+}
+
+@keyframes spin { to { transform: rotate(360deg); } }
+
+.boot-text {
+  font-size: 12px;
+  color: var(--dim);
+  text-align: center;
+  line-height: 1.7;
+  max-width: 220px;
+}
+
+/* HUD overlay on video */
+.hud-corner {
+  position: absolute;
+  top: 12px; left: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 10;
+}
+
+.hud-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: rgba(8,11,15,0.75);
+  border: 1px solid var(--border2);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 11px;
+  color: var(--text);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+}
+
+.hud-val { color: #fff; font-weight: 500; }
+
+/* ── Stats row ──────────────────────────────────────────── */
+.stats-row {
+  display: grid;
+  grid-template-columns: repeat(3,1fr);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg2);
+}
+
+.stat-cell {
+  padding: 12px 10px;
+  text-align: center;
+  border-right: 1px solid var(--border);
+}
+.stat-cell:last-child { border-right: none; }
+
+.stat-n {
+  font-family: var(--display);
+  font-size: 26px;
+  font-weight: 700;
+  color: #fff;
+  line-height: 1;
+}
+
+.stat-l {
+  font-size: 9px;
+  color: var(--dim);
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  margin-top: 3px;
+}
+
+/* ── Controls ───────────────────────────────────────────── */
+.controls {
+  display: flex;
+  gap: 8px;
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+}
+
+.btn {
+  flex: 1;
+  padding: 11px 6px;
+  font-family: var(--mono);
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 8px;
+  border: 1px solid var(--border2);
+  background: var(--bg3);
+  color: var(--text);
+  cursor: pointer;
+  transition: all .15s;
+  -webkit-tap-highlight-color: transparent;
+  letter-spacing: .3px;
+}
+
+.btn:active { transform: scale(.96); opacity: .8; }
+.btn:disabled { opacity: .3; pointer-events: none; }
+
+.btn-go {
+  background: var(--accent);
+  color: #000;
+  border-color: var(--accent);
+  font-weight: 700;
+}
+
+.btn-stop {
+  background: var(--bg3);
+  color: var(--red);
+  border-color: rgba(255,59,92,.3);
+}
+
+.btn-clear {
+  background: var(--bg3);
+  color: var(--dim);
+}
+
+/* ── Gallery ────────────────────────────────────────────── */
+.gallery-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 16px 8px;
+}
+
+.gallery-label {
+  font-size: 10px;
+  letter-spacing: 2px;
+  text-transform: uppercase;
+  color: var(--dim);
+}
+
+#count-label {
+  font-size: 11px;
+  color: var(--dim);
+}
+
+#gallery {
+  display: flex;
+  flex-direction: column;
+  padding-bottom: calc(var(--safe-bot) + 16px);
+}
+
+.empty {
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+  line-height: 2;
+}
+
+/* Person card */
+.p-card {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg);
+  cursor: pointer;
+  transition: background .12s;
+  -webkit-tap-highlight-color: transparent;
+  position: relative;
+  overflow: hidden;
+}
+
+.p-card::before {
+  content: '';
+  position: absolute;
+  left: 0; top: 0; bottom: 0;
+  width: 3px;
+  background: var(--p-color, var(--accent));
+}
+
+.p-card:active { background: var(--bg3); }
+
+.p-avatar {
+  width: 54px; height: 54px;
+  border-radius: 10px;
+  object-fit: cover;
+  flex-shrink: 0;
+  background: var(--bg3);
+  border: 1.5px solid var(--border2);
+}
+
+.p-avatar-placeholder {
+  width: 54px; height: 54px;
+  border-radius: 10px;
+  flex-shrink: 0;
+  background: var(--bg3);
+  border: 1.5px solid var(--border2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 22px;
+}
+
+.p-info { flex: 1; min-width: 0; }
+
+.p-name {
+  font-family: var(--display);
+  font-size: 15px;
+  font-weight: 700;
+  color: #fff;
+  margin-bottom: 4px;
+  display: flex;
+  align-items: center;
+  gap: 7px;
+}
+
+.p-dot {
+  width: 8px; height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.p-meta { font-size: 11px; color: var(--dim); }
+
+.p-chevron { color: var(--dim); font-size: 18px; }
+
+/* ── Modal ──────────────────────────────────────────────── */
+#modal-bg {
+  display: none;
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,.8);
+  z-index: 200;
+  overflow-y: auto;
+  -webkit-overflow-scrolling: touch;
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+}
+
+#modal-bg.open { display: block; }
+
+.modal {
+  margin: 20px 12px calc(var(--safe-bot) + 40px);
+  background: var(--bg2);
+  border-radius: 18px;
+  border: 1px solid var(--border2);
+  overflow: hidden;
+}
+
+.modal-top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 16px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-title {
+  font-family: var(--display);
+  font-size: 17px;
+  font-weight: 700;
+  color: #fff;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.modal-x {
+  width: 30px; height: 30px;
+  background: var(--bg3);
+  border: none;
+  border-radius: 50%;
+  color: var(--text);
+  font-size: 16px;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  -webkit-tap-highlight-color: transparent;
+  font-family: var(--mono);
+}
+
+.modal-info {
+  padding: 12px 18px;
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 24px;
+}
+
+.modal-stat { text-align: center; }
+.modal-stat-n { font-size: 20px; font-weight: 700; color: #fff; }
+.modal-stat-l { font-size: 10px; color: var(--dim); letter-spacing: 1px; text-transform: uppercase; margin-top: 2px; }
+
+.photo-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 2px;
+  padding: 2px;
+}
+
+.photo-grid img {
+  width: 100%;
+  aspect-ratio: 1;
+  object-fit: cover;
+  border-radius: 3px;
+  display: block;
+}
+
+.modal-empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--dim);
+  font-size: 12px;
+}
+
+/* ── Toast ──────────────────────────────────────────────── */
+#toast {
+  position: fixed;
+  bottom: calc(var(--safe-bot) + 24px);
+  left: 50%;
+  transform: translateX(-50%) translateY(20px);
+  background: var(--bg4);
+  border: 1px solid var(--border2);
+  color: #fff;
+  font-size: 12px;
+  padding: 9px 18px;
+  border-radius: 20px;
+  opacity: 0;
+  transition: all .25s;
+  z-index: 300;
+  white-space: nowrap;
+  pointer-events: none;
+}
+
+#toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}
+</style>
+</head>
+<body>
+
+<!-- Header -->
+<header>
+  <div class="logo">Face<span>Tracker</span></div>
+  <div id="status" class="s-loading">
+    <div id="status-dot"></div>
+    <span id="status-txt">Laddar...</span>
+  </div>
+</header>
+
+<!-- Video -->
+<div class="video-section">
+  <video id="video" autoplay muted playsinline webkit-playsinline></video>
+  <canvas id="canvas"></canvas>
+
+  <div id="boot">
+    <div class="boot-icon"></div>
+    <div class="boot-text">Laddar MediaPipe<br>ansiktsmodell...</div>
+  </div>
+
+  <div class="hud-corner">
+    <div class="hud-pill">
+      <span>I bild</span>
+      <span class="hud-val" id="hud-faces">0</span>
+    </div>
+    <div class="hud-pill">
+      <span>FPS</span>
+      <span class="hud-val" id="hud-fps">—</span>
+    </div>
+  </div>
+</div>
+
+<!-- Stats -->
+<div class="stats-row">
+  <div class="stat-cell">
+    <div class="stat-n" id="s-persons">0</div>
+    <div class="stat-l">Unika</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-n" id="s-photos">0</div>
+    <div class="stat-l">Foton</div>
+  </div>
+  <div class="stat-cell">
+    <div class="stat-n" id="s-session">0</div>
+    <div class="stat-l">Frames</div>
+  </div>
+</div>
+
+<!-- Controls -->
+<div class="controls">
+  <button class="btn btn-go"   id="btn-start" onclick="startCamera()">▶ Starta</button>
+  <button class="btn btn-stop" id="btn-stop"  onclick="stopCamera()" disabled>■ Stoppa</button>
+  <button class="btn btn-clear"              onclick="clearAll()">✕ Rensa</button>
+</div>
+
+<!-- Gallery -->
+<div class="gallery-head">
+  <span class="gallery-label">Detekterade personer</span>
+  <span id="count-label">0 personer</span>
+</div>
+
+<div id="gallery">
+  <div class="empty">Tryck Starta för att aktivera kameran.<br>Varje unikt ansikte sparas automatiskt.</div>
+</div>
+
+<!-- Modal -->
+<div id="modal-bg" onclick="closeMod(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-top">
+      <div class="modal-title" id="mod-title">Person</div>
+      <button class="modal-x" onclick="closeMod()">✕</button>
+    </div>
+    <div class="modal-info" id="mod-info"></div>
+    <div id="mod-body"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- MediaPipe via CDN -->
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js" crossorigin="anonymous"></script>
+<script src="https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/face_mesh.js" crossorigin="anonymous"></script>
+
+<script>
+// ═══════════════════════════════════════════════════════════
+// KONFIGURATION
+// ═══════════════════════════════════════════════════════════
+const CFG = {
+  CAPTURE_INTERVAL : 2500,   // ms mellan auto-foton per person
+  MATCH_THRESHOLD  : 18,     // max pixel-avstånd för samma person
+  CONFIRM_FRAMES   : 4,      // frames tills ny person bekräftas
+  MAX_PHOTOS       : 40,     // max sparade foton per person
+  DETECT_EVERY     : 2,      // kör igenkänning var N:e frame (prestanda)
+  PHOTO_SIZE       : 128,    // pixlar för sparade thumbnails
+};
+
+const COLORS = [
+  '#00e5ff','#00ff88','#ffd60a','#ff6b35',
+  '#c77dff','#ff3b5c','#06ffd9','#ffbe0b'
+];
+
+// ═══════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════
+let persons   = [];       // { id, label, color, descriptor, photos, lastCapture, seen }
+let pending   = [];       // { descriptor, count, firstSeen }
+let nextId    = 1;
+let running   = false;
+let mpCamera  = null;
+let frameCount = 0;
+let totalPhotos = 0;
+
+// FPS räknare
+let fpsFrames = 0, fpsLast = Date.now();
+
+const video  = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx    = canvas.getContext('2d');
+
+// ═══════════════════════════════════════════════════════════
+// FACE MESH — INITIERING
+// ═══════════════════════════════════════════════════════════
+const faceMesh = new FaceMesh({ locateFile: f =>
+  `https://cdn.jsdelivr.net/npm/@mediapipe/face_mesh/${f}`
+});
+
+faceMesh.setOptions({
+  maxNumFaces       : 6,
+  refineLandmarks   : false,   // false = snabbare, bra för iPhone
+  minDetectionConfidence  : 0.6,
+  minTrackingConfidence   : 0.5,
+});
+
+faceMesh.onResults(onResults);
+
+// Ladda modellen
+faceMesh.initialize().then(() => {
+  setStatus('ready', 'Klar');
+  document.getElementById('boot').classList.add('hidden');
+  showToast('Modell laddad — tryck Starta!');
+}).catch(err => {
+  console.error(err);
+  setStatus('error', 'Laddningsfel');
+  document.getElementById('boot').querySelector('.boot-text').textContent =
+    'Kunde inte ladda modellen.\nKontrollera nätverket och ladda om.';
+});
+
+// ═══════════════════════════════════════════════════════════
+// KAMERA
+// ═══════════════════════════════════════════════════════════
+async function startCamera() {
+  setStatus('loading', 'Startar...');
+  try {
+    const stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width:  { ideal: 640, max: 1280 },
+        height: { ideal: 480, max: 960  },
+        frameRate: { ideal: 30, max: 60 },
+      },
+      audio: false,
+    });
+    video.srcObject = stream;
+    await new Promise(r => video.onloadedmetadata = r);
+    canvas.width  = video.videoWidth;
+    canvas.height = video.videoHeight;
+
+    mpCamera = new Camera(video, {
+      onFrame: async () => {
+        frameCount++;
+        fpsFrames++;
+        document.getElementById('s-session').textContent = frameCount;
+
+        // FPS beräkning
+        const now = Date.now();
+        if (now - fpsLast >= 1000) {
+          document.getElementById('hud-fps').textContent = fpsFrames;
+          fpsFrames = 0;
+          fpsLast   = now;
+        }
+
+        await faceMesh.send({ image: video });
+      },
+      width: 640, height: 480,
+    });
+
+    await mpCamera.start();
+    running = true;
+
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled  = false;
+    setStatus('active', 'Aktiv');
+
+  } catch (err) {
+    console.error(err);
+    setStatus('error', 'Kamerafel');
+    showToast('Tillåt kamera i Safari-inställningar');
+  }
+}
+
+function stopCamera() {
+  if (mpCamera) { mpCamera.stop(); mpCamera = null; }
+  if (video.srcObject) video.srcObject.getTracks().forEach(t => t.stop());
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  running = false;
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled  = true;
+  document.getElementById('hud-faces').textContent = '0';
+  document.getElementById('hud-fps').textContent   = '—';
+  setStatus('ready', 'Stoppad');
+}
+
+// ═══════════════════════════════════════════════════════════
+// FACE MESH — RESULTATHANTERING
+// ═══════════════════════════════════════════════════════════
+function onResults(results) {
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+  const faces = results.multiFaceLandmarks || [];
+  document.getElementById('hud-faces').textContent = faces.length;
+
+  const now = Date.now();
+
+  faces.forEach(landmarks => {
+    // Beräkna bounding box från landmarks
+    const xs = landmarks.map(p => p.x * canvas.width);
+    const ys = landmarks.map(p => p.y * canvas.height);
+    const x1 = Math.min(...xs), x2 = Math.max(...xs);
+    const y1 = Math.min(...ys), y2 = Math.max(...ys);
+    const pad = (x2-x1) * 0.15;
+    const bx = Math.max(0, x1-pad),   by = Math.max(0, y1-pad*1.5);
+    const bw = Math.min(canvas.width  - bx, (x2-x1) + pad*2);
+    const bh = Math.min(canvas.height - by, (y2-y1) + pad*3);
+
+    // Skapa enkel descriptor från nyckellandmarks
+    const descriptor = buildDescriptor(landmarks, canvas.width, canvas.height);
+
+    // Matcha mot känd person
+    const person = matchOrCreate(descriptor, now);
+    if (!person) return;
+
+    // Rita UI
+    drawFaceUI(bx, by, bw, bh, person);
+
+    // Spara foto
+    if (now - person.lastCapture > CFG.CAPTURE_INTERVAL && person.photos.length < CFG.MAX_PHOTOS) {
+      capturePhoto(person, bx, by, bw, bh);
+      person.lastCapture = now;
+    }
+  });
+
+  updateStats();
+}
+
+// ═══════════════════════════════════════════════════════════
+// DESCRIPTOR — enkel geometrisk signatur av ansiktet
+// Använder 12 nyckellandmarks normaliserade mot ansiktsstorlek
+// ═══════════════════════════════════════════════════════════
+function buildDescriptor(lm, W, H) {
+  // Nyckelindex: näsa, ögon, mun, kindben
+  const keys = [1, 4, 6, 9, 10, 13, 14, 33, 61, 152, 263, 291,
+                 362, 386, 133, 159, 160, 246, 380, 374];
+  const pts  = keys.map(i => ({ x: lm[i].x * W, y: lm[i].y * H }));
+
+  // Normalisera mot ansiktets mittpunkt och storlek
+  const cx = pts.reduce((s,p) => s + p.x, 0) / pts.length;
+  const cy = pts.reduce((s,p) => s + p.y, 0) / pts.length;
+  const scale = Math.hypot(
+    pts[7].x - pts[0].x,
+    pts[7].y - pts[0].y
+  ) || 1;
+
+  return pts.map(p => [(p.x - cx)/scale, (p.y - cy)/scale]).flat();
+}
+
+// Euklidiskt avstånd mellan två descriptors
+function descDist(a, b) {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) s += (a[i]-b[i])**2;
+  return Math.sqrt(s) * 100;
+}
+
+// ═══════════════════════════════════════════════════════════
+// MATCHNING
+// ═══════════════════════════════════════════════════════════
+function matchOrCreate(desc, now) {
+  // Jämför mot bekräftade personer
+  if (persons.length > 0) {
+    let best = Infinity, match = null;
+    for (const p of persons) {
+      const d = descDist(desc, p.descriptor);
+      if (d < best) { best = d; match = p; }
+    }
+    if (best < CFG.MATCH_THRESHOLD) {
+      // Uppdatera descriptor med glidande medel (80/20)
+      match.descriptor = match.descriptor.map((v,i) => v*0.8 + desc[i]*0.2);
+      match.seen++;
+      return match;
+    }
+  }
+
+  // Kolla pending
+  for (const p of pending) {
+    if (descDist(desc, p.descriptor) < CFG.MATCH_THRESHOLD) {
+      p.count++;
+      p.descriptor = p.descriptor.map((v,i) => v*0.7 + desc[i]*0.3);
+      if (p.count >= CFG.CONFIRM_FRAMES) {
+        pending.splice(pending.indexOf(p), 1);
+        return createPerson(p.descriptor);
+      }
+      return null;
+    }
+  }
+
+  pending.push({ descriptor: [...desc], count: 1 });
+  if (pending.length > 20) pending.shift(); // håll pending-kön lagom
+  return null;
+}
+
+function createPerson(descriptor) {
+  const person = {
+    id:          nextId,
+    label:       `Person ${nextId}`,
+    color:       COLORS[(nextId-1) % COLORS.length],
+    descriptor:  descriptor,
+    photos:      [],
+    lastCapture: 0,
+    seen:        1,
+  };
+  nextId++;
+  persons.push(person);
+  renderGallery();
+  showToast(`${person.label} identifierad`);
+  return person;
+}
+
+// ═══════════════════════════════════════════════════════════
+// RITA UI PÅ CANVAS
+// ═══════════════════════════════════════════════════════════
+function drawFaceUI(bx, by, bw, bh, person) {
+  const c = person.color;
+
+  // Halvtransparent fyllning
+  ctx.fillStyle = hexToRgba(c, 0.05);
+  ctx.fillRect(bx, by, bw, bh);
+
+  // Hörn-dekoration
+  ctx.strokeStyle = c;
+  ctx.lineWidth   = 2.5;
+  ctx.lineCap     = 'round';
+  const cl = Math.min(bw, bh) * 0.2;
+
+  [
+    [bx,    by,    cl,  0,   0,  cl ],
+    [bx+bw, by,   -cl,  0,   0,  cl ],
+    [bx,    by+bh, cl,  0,   0, -cl],
+    [bx+bw, by+bh,-cl,  0,   0, -cl],
+  ].forEach(([ox, oy, dx1, dy1, dx2, dy2]) => {
+    ctx.beginPath();
+    ctx.moveTo(ox+dx1, oy+dy1);
+    ctx.lineTo(ox, oy);
+    ctx.lineTo(ox+dx2, oy+dy2);
+    ctx.stroke();
+  });
+
+  // Label
+  const label   = person.label;
+  ctx.font      = `bold ${Math.max(11,Math.min(14,bw*0.09))}px 'DM Mono', monospace`;
+  const tw      = ctx.measureText(label).width;
+  const lh      = 22;
+  const lx      = bx;
+  const ly      = by > lh + 4 ? by - lh - 4 : by + bh + 4;
+
+  ctx.fillStyle = c;
+  roundRect(ctx, lx, ly, tw + 14, lh, 4);
+  ctx.fill();
+
+  ctx.fillStyle = '#000';
+  ctx.fillText(label, lx + 7, ly + lh/2 + 4);
+}
+
+function roundRect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x+r, y);
+  ctx.lineTo(x+w-r, y);
+  ctx.quadraticCurveTo(x+w, y, x+w, y+r);
+  ctx.lineTo(x+w, y+h-r);
+  ctx.quadraticCurveTo(x+w, y+h, x+w-r, y+h);
+  ctx.lineTo(x+r, y+h);
+  ctx.quadraticCurveTo(x, y+h, x, y+h-r);
+  ctx.lineTo(x, y+r);
+  ctx.quadraticCurveTo(x, y, x+r, y);
+  ctx.closePath();
+}
+
+function hexToRgba(hex, a) {
+  const r = parseInt(hex.slice(1,3),16);
+  const g = parseInt(hex.slice(3,5),16);
+  const b = parseInt(hex.slice(5,7),16);
+  return `rgba(${r},${g},${b},${a})`;
+}
+
+// ═══════════════════════════════════════════════════════════
+// FOTO-SPARNING
+// ═══════════════════════════════════════════════════════════
+function capturePhoto(person, bx, by, bw, bh) {
+  const pad = bw * 0.12;
+  const sx  = Math.max(0, (canvas.width - (bx + bw/2 + pad)) );
+  const sy  = Math.max(0, by - pad);
+  const sw  = Math.min(video.videoWidth - sx, bw + pad*2);
+  const sh  = Math.min(video.videoHeight - sy, bh + pad*2);
+
+  const tmp    = document.createElement('canvas');
+  tmp.width    = CFG.PHOTO_SIZE;
+  tmp.height   = CFG.PHOTO_SIZE;
+  const tctx   = tmp.getContext('2d');
+
+  // Spegelvänd (matchar vad användaren ser)
+  const vidW   = video.videoWidth;
+  const realBX = vidW - (bx + bw); // spegling av X
+
+  tctx.save();
+  tctx.translate(CFG.PHOTO_SIZE, 0);
+  tctx.scale(-1, 1);
+  tctx.drawImage(
+    video,
+    Math.max(0, realBX - pad), Math.max(0, by - pad),
+    Math.min(vidW - realBX + pad, bw + pad*2),
+    Math.min(video.videoHeight - by + pad, bh + pad*2),
+    0, 0, CFG.PHOTO_SIZE, CFG.PHOTO_SIZE
+  );
+  tctx.restore();
+
+  person.photos.push({ url: tmp.toDataURL('image/jpeg', 0.82), ts: Date.now() });
+  totalPhotos++;
+  updateGalleryCard(person);
+}
+
+// ═══════════════════════════════════════════════════════════
+// UI — STATS & GALLERY
+// ═══════════════════════════════════════════════════════════
+function updateStats() {
+  document.getElementById('s-persons').textContent = persons.length;
+  document.getElementById('s-photos').textContent  = totalPhotos;
+  document.getElementById('count-label').textContent =
+    `${persons.length} person${persons.length !== 1 ? 'er' : ''}`;
+}
+
+function renderGallery() {
+  const g = document.getElementById('gallery');
+  g.innerHTML = '';
+  if (!persons.length) {
+    g.innerHTML = '<div class="empty">Tryck Starta för att aktivera kameran.<br>Varje unikt ansikte sparas automatiskt.</div>';
+    return;
+  }
+  [...persons].reverse().forEach(p => g.appendChild(makeCard(p)));
+  updateStats();
+}
+
+function makeCard(person) {
+  const el = document.createElement('div');
+  el.className = 'p-card';
+  el.id        = `card-${person.id}`;
+  el.style.setProperty('--p-color', person.color);
+  el.onclick   = () => openModal(person.id);
+
+  const lastPic = person.photos.at(-1);
+  const avatar  = lastPic
+    ? `<img class="p-avatar" src="${lastPic.url}" alt="${person.label}">`
+    : `<div class="p-avatar-placeholder">👤</div>`;
+
+  el.innerHTML = `
+    ${avatar}
+    <div class="p-info">
+      <div class="p-name">
+        <span class="p-dot" style="background:${person.color}"></span>
+        ${person.label}
+      </div>
+      <div class="p-meta">${person.photos.length} foto${person.photos.length !== 1 ? 'n' : ''} · ${person.seen} frames</div>
+    </div>
+    <div class="p-chevron">›</div>
+  `;
+  return el;
+}
+
+function updateGalleryCard(person) {
+  const old = document.getElementById(`card-${person.id}`);
+  if (old) old.replaceWith(makeCard(person));
+  else renderGallery();
+}
+
+// ═══════════════════════════════════════════════════════════
+// MODAL
+// ═══════════════════════════════════════════════════════════
+function openModal(id) {
+  const p = persons.find(x => x.id === id);
+  if (!p) return;
+
+  document.getElementById('mod-title').innerHTML =
+    `<span style="color:${p.color}">●</span> ${p.label}`;
+
+  document.getElementById('mod-info').innerHTML = `
+    <div class="modal-stat"><div class="modal-stat-n">${p.photos.length}</div><div class="modal-stat-l">Foton</div></div>
+    <div class="modal-stat"><div class="modal-stat-n">${p.seen}</div><div class="modal-stat-l">Frames</div></div>
+    <div class="modal-stat"><div class="modal-stat-n">${p.id}</div><div class="modal-stat-l">ID</div></div>
+  `;
+
+  const body = document.getElementById('mod-body');
+  if (!p.photos.length) {
+    body.innerHTML = '<div class="modal-empty">Inga foton sparade ännu</div>';
+  } else {
+    body.innerHTML = `
+      <div class="photo-grid">
+        ${[...p.photos].reverse().map(ph =>
+          `<img src="${ph.url}" loading="lazy" alt="">`
+        ).join('')}
+      </div>
+    `;
+  }
+
+  document.getElementById('modal-bg').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeMod(e) {
+  if (e && e.target !== document.getElementById('modal-bg')) return;
+  document.getElementById('modal-bg').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// ═══════════════════════════════════════════════════════════
+// RENSA & HELPERS
+// ═══════════════════════════════════════════════════════════
+function clearAll() {
+  persons     = [];
+  pending     = [];
+  nextId      = 1;
+  totalPhotos = 0;
+  renderGallery();
+  updateStats();
+  showToast('Allt rensat');
+}
+
+function setStatus(cls, txt) {
+  const el = document.getElementById('status');
+  el.className = '';
+  if (cls) el.classList.add(`s-${cls}`);
+  document.getElementById('status-txt').textContent = txt;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  clearTimeout(t._timer);
+  t._timer = setTimeout(() => t.classList.remove('show'), 2600);
+}
+</script>
+</body>
+</html>
