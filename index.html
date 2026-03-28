@@ -1,0 +1,846 @@
+<!DOCTYPE html>
+<html lang="sv">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>FaceTracker</title>
+<style>
+  :root {
+    --bg:      #0a0a0a;
+    --bg2:     #111;
+    --bg3:     #1a1a1a;
+    --border:  #222;
+    --green:   #00ff88;
+    --blue:    #00aaff;
+    --red:     #ff4455;
+    --yellow:  #ffcc00;
+    --text:    #e0e0e0;
+    --dim:     #555;
+    --mono:    'Courier New', monospace;
+  }
+
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--mono);
+    min-height: 100vh;
+    overflow-x: hidden;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* ── Header ── */
+  header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 14px 16px;
+    border-bottom: 1px solid var(--border);
+    background: rgba(10,10,10,0.95);
+    position: sticky;
+    top: 0;
+    z-index: 50;
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+  }
+
+  .logo {
+    font-size: 17px;
+    font-weight: 700;
+    color: var(--green);
+    letter-spacing: -0.5px;
+  }
+
+  .logo span { color: var(--dim); font-weight: 400; }
+
+  #status-pill {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 11px;
+    color: var(--dim);
+    background: var(--bg2);
+    border: 1px solid var(--border);
+    padding: 5px 10px;
+    border-radius: 20px;
+    transition: all 0.3s;
+  }
+
+  #status-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    background: var(--dim);
+    transition: background 0.3s;
+  }
+
+  #status-pill.active #status-dot  { background: var(--green); animation: pulse 1.5s infinite; }
+  #status-pill.loading #status-dot { background: var(--yellow); animation: pulse 0.8s infinite; }
+  #status-pill.error #status-dot   { background: var(--red); }
+
+  @keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50%       { opacity: 0.3; }
+  }
+
+  /* ── Main layout ── */
+  main { display: flex; flex-direction: column; }
+
+  /* ── Video area ── */
+  .video-wrap {
+    position: relative;
+    width: 100%;
+    background: #000;
+    overflow: hidden;
+  }
+
+  #video {
+    width: 100%;
+    display: block;
+    transform: scaleX(-1); /* mirror */
+    -webkit-transform: scaleX(-1);
+  }
+
+  #overlay {
+    position: absolute;
+    top: 0; left: 0;
+    width: 100%; height: 100%;
+    pointer-events: none;
+    transform: scaleX(-1);
+    -webkit-transform: scaleX(-1);
+  }
+
+  /* ── Loading screen ── */
+  #loading-screen {
+    position: absolute;
+    inset: 0;
+    background: #000;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    z-index: 10;
+  }
+
+  .loader-ring {
+    width: 48px; height: 48px;
+    border: 2px solid var(--border);
+    border-top-color: var(--green);
+    border-radius: 50%;
+    animation: spin 0.8s linear infinite;
+  }
+
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  #loading-text {
+    font-size: 13px;
+    color: var(--dim);
+  }
+
+  /* ── Stats bar ── */
+  .stats-bar {
+    display: flex;
+    gap: 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg2);
+  }
+
+  .stat {
+    flex: 1;
+    text-align: center;
+    padding: 10px 8px;
+    border-right: 1px solid var(--border);
+  }
+
+  .stat:last-child { border-right: none; }
+
+  .stat-val {
+    font-size: 22px;
+    font-weight: 700;
+    color: #fff;
+    line-height: 1;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    color: var(--dim);
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    margin-top: 3px;
+  }
+
+  /* ── Controls ── */
+  .controls {
+    display: flex;
+    gap: 10px;
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border);
+    background: var(--bg);
+  }
+
+  .btn {
+    flex: 1;
+    padding: 12px 8px;
+    font-family: var(--mono);
+    font-size: 12px;
+    font-weight: 700;
+    letter-spacing: 0.5px;
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    cursor: pointer;
+    transition: all 0.15s;
+    -webkit-tap-highlight-color: transparent;
+    background: var(--bg2);
+    color: var(--text);
+  }
+
+  .btn:active { opacity: 0.7; transform: scale(0.97); }
+
+  .btn-primary {
+    background: var(--green);
+    color: #000;
+    border-color: var(--green);
+  }
+
+  .btn-danger {
+    background: var(--bg2);
+    color: var(--red);
+    border-color: var(--red);
+  }
+
+  .btn:disabled {
+    opacity: 0.35;
+    cursor: not-allowed;
+  }
+
+  /* ── Gallery ── */
+  .gallery-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 12px 16px 8px;
+  }
+
+  .gallery-title {
+    font-size: 11px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: var(--dim);
+  }
+
+  .gallery-count {
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  #gallery {
+    display: flex;
+    flex-direction: column;
+    gap: 1px;
+    background: var(--border);
+    border-top: 1px solid var(--border);
+  }
+
+  .person-card {
+    background: var(--bg);
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: background 0.15s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .person-card:active { background: var(--bg3); }
+
+  .person-avatar {
+    width: 52px; height: 52px;
+    border-radius: 8px;
+    object-fit: cover;
+    border: 2px solid var(--border);
+    flex-shrink: 0;
+    background: var(--bg3);
+  }
+
+  .person-avatar.placeholder {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+  }
+
+  .person-info { flex: 1; min-width: 0; }
+
+  .person-name {
+    font-size: 14px;
+    font-weight: 700;
+    color: #fff;
+    margin-bottom: 3px;
+  }
+
+  .person-meta {
+    font-size: 11px;
+    color: var(--dim);
+  }
+
+  .person-badge {
+    display: inline-block;
+    width: 10px; height: 10px;
+    border-radius: 50%;
+    margin-right: 5px;
+  }
+
+  .person-arrow {
+    font-size: 16px;
+    color: var(--dim);
+  }
+
+  .empty-state {
+    padding: 48px 24px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 13px;
+    line-height: 1.8;
+  }
+
+  /* ── Modal ── */
+  #modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.85);
+    z-index: 200;
+    overflow-y: auto;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  #modal-overlay.open { display: block; }
+
+  .modal {
+    background: var(--bg2);
+    margin: 20px 16px 40px;
+    border-radius: 16px;
+    overflow: hidden;
+    border: 1px solid var(--border);
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border);
+  }
+
+  .modal-title {
+    font-size: 16px;
+    font-weight: 700;
+    color: #fff;
+  }
+
+  .modal-close {
+    background: var(--bg3);
+    border: none;
+    color: var(--text);
+    font-size: 20px;
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    -webkit-tap-highlight-color: transparent;
+    font-family: var(--mono);
+  }
+
+  .modal-photos {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 2px;
+    padding: 2px;
+  }
+
+  .modal-photo {
+    aspect-ratio: 1;
+    object-fit: cover;
+    width: 100%;
+    border-radius: 4px;
+    display: block;
+  }
+
+  .modal-empty {
+    padding: 40px;
+    text-align: center;
+    color: var(--dim);
+    font-size: 13px;
+  }
+
+  /* ── iOS safe area ── */
+  @supports (padding-bottom: env(safe-area-inset-bottom)) {
+    .gallery-footer { padding-bottom: env(safe-area-inset-bottom); }
+  }
+
+  /* ── Toast ── */
+  #toast {
+    position: fixed;
+    bottom: 30px;
+    left: 50%;
+    transform: translateX(-50%) translateY(80px);
+    background: var(--bg3);
+    border: 1px solid var(--border);
+    color: var(--text);
+    font-size: 12px;
+    padding: 10px 20px;
+    border-radius: 20px;
+    transition: transform 0.3s;
+    z-index: 300;
+    white-space: nowrap;
+  }
+
+  #toast.show { transform: translateX(-50%) translateY(0); }
+</style>
+</head>
+<body>
+
+<header>
+  <div class="logo">Face<span>Tracker</span></div>
+  <div id="status-pill">
+    <div id="status-dot"></div>
+    <span id="status-text">Laddar modell...</span>
+  </div>
+</header>
+
+<main>
+  <!-- Video -->
+  <div class="video-wrap">
+    <video id="video" autoplay muted playsinline></video>
+    <canvas id="overlay"></canvas>
+    <div id="loading-screen">
+      <div class="loader-ring"></div>
+      <div id="loading-text">Laddar AI-modell...</div>
+    </div>
+  </div>
+
+  <!-- Stats -->
+  <div class="stats-bar">
+    <div class="stat">
+      <div class="stat-val" id="stat-faces">0</div>
+      <div class="stat-label">I bild</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="stat-persons">0</div>
+      <div class="stat-label">Unika</div>
+    </div>
+    <div class="stat">
+      <div class="stat-val" id="stat-photos">0</div>
+      <div class="stat-label">Bilder</div>
+    </div>
+  </div>
+
+  <!-- Controls -->
+  <div class="controls">
+    <button class="btn btn-primary" id="btn-start" onclick="startCamera()">▶ Starta</button>
+    <button class="btn" id="btn-stop" onclick="stopCamera()" disabled>■ Stoppa</button>
+    <button class="btn btn-danger" id="btn-clear" onclick="clearAll()">✕ Rensa</button>
+  </div>
+
+  <!-- Gallery -->
+  <div class="gallery-header">
+    <span class="gallery-title">Detekterade personer</span>
+    <span class="gallery-count" id="gallery-count">0 personer</span>
+  </div>
+
+  <div id="gallery">
+    <div class="empty-state">
+      Starta kameran för att börja detektera ansikten.<br>
+      Klicka på en person för att se sparade bilder.
+    </div>
+  </div>
+
+  <div class="gallery-footer" style="height:20px"></div>
+</main>
+
+<!-- Modal -->
+<div id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal" onclick="event.stopPropagation()">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Person</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div id="modal-body"></div>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toast"></div>
+
+<!-- face-api.js från CDN -->
+<script src="https://cdn.jsdelivr.net/npm/face-api.js@0.22.2/dist/face-api.min.js"></script>
+
+<script>
+// ── Konfiguration ─────────────────────────────────────────────
+const MODEL_URL        = 'https://cdn.jsdelivr.net/npm/@vladmandic/face-api@1.7.12/model/';
+const DETECT_INTERVAL  = 200;   // ms mellan detekteringar
+const CAPTURE_INTERVAL = 3000;  // ms mellan sparade bilder per person
+const MATCH_THRESHOLD  = 0.5;   // euklidiskt avstånd för matchning
+const CONFIRM_FRAMES   = 3;     // frames innan ny person bekräftas
+const MAX_PHOTOS       = 30;    // max sparade bilder per person
+
+const COLORS = [
+  '#00ff88','#00aaff','#ff4455','#ffcc00',
+  '#cc44ff','#ff8800','#00ffcc','#ff44aa'
+];
+
+// ── State ─────────────────────────────────────────────────────
+let persons    = [];   // { id, label, descriptor, photos, color, lastCapture, confirmedFrames }
+let nextId     = 1;
+let pending    = [];   // { descriptor, count }
+let stream     = null;
+let running    = false;
+let modelsLoaded = false;
+let detectTimer  = null;
+let totalPhotos  = 0;
+
+const video    = document.getElementById('video');
+const canvas   = document.getElementById('overlay');
+const ctx      = canvas.getContext('2d');
+
+// ── Ladda modeller ────────────────────────────────────────────
+async function loadModels() {
+  setStatus('loading', 'Laddar modell...');
+  document.getElementById('loading-text').textContent = 'Laddar AI-modell (första gången tar ~10 sek)...';
+  try {
+    await Promise.all([
+      faceapi.nets.tinyFaceDetector.loadFromUri(MODEL_URL),
+      faceapi.nets.faceLandmark68TinyNet.loadFromUri(MODEL_URL),
+      faceapi.nets.faceRecognitionNet.loadFromUri(MODEL_URL),
+    ]);
+    modelsLoaded = true;
+    setStatus('idle', 'Klar');
+    document.getElementById('loading-screen').style.display = 'none';
+    showToast('Modell laddad — tryck Starta!');
+  } catch (err) {
+    console.error(err);
+    setStatus('error', 'Fel vid laddning');
+    document.getElementById('loading-text').textContent = 'Kunde inte ladda modellen. Kontrollera internetanslutning.';
+  }
+}
+
+// ── Kamera ───────────────────────────────────────────────────
+async function startCamera() {
+  if (!modelsLoaded) { showToast('Väntar på modellen...'); return; }
+  try {
+    stream = await navigator.mediaDevices.getUserMedia({
+      video: {
+        facingMode: 'user',
+        width:  { ideal: 640 },
+        height: { ideal: 480 }
+      },
+      audio: false
+    });
+    video.srcObject = stream;
+    await video.play();
+    video.addEventListener('loadedmetadata', () => {
+      canvas.width  = video.videoWidth;
+      canvas.height = video.videoHeight;
+    });
+    running = true;
+    document.getElementById('btn-start').disabled = true;
+    document.getElementById('btn-stop').disabled  = false;
+    setStatus('active', 'Aktiv');
+    detectLoop();
+  } catch (err) {
+    console.error(err);
+    setStatus('error', 'Kamerafel');
+    showToast('Kunde inte öppna kameran. Tillåt åtkomst i inställningar.');
+  }
+}
+
+function stopCamera() {
+  running = false;
+  if (stream) { stream.getTracks().forEach(t => t.stop()); stream = null; }
+  clearTimeout(detectTimer);
+  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  document.getElementById('btn-start').disabled = false;
+  document.getElementById('btn-stop').disabled  = true;
+  setStatus('idle', 'Stoppad');
+  updateStats(0);
+}
+
+// ── Detekteringsloop ─────────────────────────────────────────
+async function detectLoop() {
+  if (!running) return;
+  try {
+    const detections = await faceapi
+      .detectAllFaces(video, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.4 }))
+      .withFaceLandmarks(true)
+      .withFaceDescriptors();
+
+    ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+    const now    = Date.now();
+    const scaleX = canvas.width  / video.videoWidth;
+    const scaleY = canvas.height / video.videoHeight;
+
+    let facesInFrame = 0;
+
+    for (const det of detections) {
+      const descriptor = det.descriptor;
+      const box        = det.detection.box;
+      const bx = box.x * scaleX;
+      const by = box.y * scaleY;
+      const bw = box.width  * scaleX;
+      const bh = box.height * scaleY;
+
+      const person = matchOrCreate(descriptor, now);
+      if (!person) continue;
+
+      facesInFrame++;
+
+      // Rita box
+      ctx.strokeStyle = person.color;
+      ctx.lineWidth   = 2.5;
+      ctx.strokeRect(bx, by, bw, bh);
+
+      // Hörndekoration
+      const cLen = 18;
+      ctx.lineWidth = 3;
+      [[bx,by],[bx+bw,by],[bx,by+bh],[bx+bw,by+bh]].forEach(([cx,cy],i) => {
+        const sx = i%2===0 ? 1 : -1;
+        const sy = i<2     ? 1 : -1;
+        ctx.beginPath();
+        ctx.moveTo(cx + sx*cLen, cy);
+        ctx.lineTo(cx, cy);
+        ctx.lineTo(cx, cy + sy*cLen);
+        ctx.stroke();
+      });
+
+      // Label-bakgrund
+      const label   = person.label;
+      const fSize   = Math.max(12, Math.min(16, bw * 0.12));
+      ctx.font      = `bold ${fSize}px 'Courier New', monospace`;
+      const tw      = ctx.measureText(label).width;
+      const lh      = fSize + 8;
+      ctx.fillStyle = person.color;
+      ctx.fillRect(bx - 1, by - lh - 2, tw + 16, lh + 4);
+
+      // Label-text
+      ctx.fillStyle = '#000';
+      ctx.fillText(label, bx + 7, by - 6);
+
+      // Spara bild
+      if (now - person.lastCapture > CAPTURE_INTERVAL && person.photos.length < MAX_PHOTOS) {
+        capturePhoto(person, bx, by, bw, bh);
+        person.lastCapture = now;
+      }
+    }
+
+    updateStats(facesInFrame);
+  } catch (e) {
+    console.warn('Detekteringsfel:', e);
+  }
+
+  detectTimer = setTimeout(detectLoop, DETECT_INTERVAL);
+}
+
+// ── Matchning ─────────────────────────────────────────────────
+function matchOrCreate(descriptor, now) {
+  // Jämför mot kända personer
+  if (persons.length > 0) {
+    let bestDist   = Infinity;
+    let bestPerson = null;
+    for (const p of persons) {
+      const dist = faceapi.euclideanDistance(descriptor, p.descriptor);
+      if (dist < bestDist) { bestDist = dist; bestPerson = p; }
+    }
+    if (bestDist < MATCH_THRESHOLD) {
+      // Uppdatera descriptor med glidande medelvärde
+      bestPerson.descriptor = descriptor.map((v,i) => v * 0.2 + bestPerson.descriptor[i] * 0.8);
+      return bestPerson;
+    }
+  }
+
+  // Kolla pending
+  for (const p of pending) {
+    const dist = faceapi.euclideanDistance(descriptor, p.descriptor);
+    if (dist < MATCH_THRESHOLD) {
+      p.count++;
+      p.descriptor = descriptor.map((v,i) => v * 0.3 + p.descriptor[i] * 0.7);
+      if (p.count >= CONFIRM_FRAMES) {
+        pending.splice(pending.indexOf(p), 1);
+        return createPerson(p.descriptor);
+      }
+      return null;
+    }
+  }
+
+  pending.push({ descriptor: Float32Array.from(descriptor), count: 1 });
+  return null;
+}
+
+function createPerson(descriptor) {
+  const person = {
+    id:          nextId++,
+    label:       `Person ${nextId - 1}`,
+    descriptor:  descriptor,
+    photos:      [],
+    color:       COLORS[(nextId - 2) % COLORS.length],
+    lastCapture: 0,
+  };
+  persons.push(person);
+  updateStats(0);
+  renderGallery();
+  showToast(`${person.label} identifierad`);
+  return person;
+}
+
+// ── Foto-sparning ─────────────────────────────────────────────
+function capturePhoto(person, bx, by, bw, bh) {
+  const pad  = 20;
+  const sx   = Math.max(0, bx - pad);
+  const sy   = Math.max(0, by - pad);
+  const sw   = Math.min(video.videoWidth  - sx, bw + pad*2);
+  const sh   = Math.min(video.videoHeight - sy, bh + pad*2);
+
+  const tmpCanvas = document.createElement('canvas');
+  tmpCanvas.width  = 120;
+  tmpCanvas.height = 120;
+  const tmpCtx = tmpCanvas.getContext('2d');
+
+  // Rita spegelvänt (för att matcha den speglade videon)
+  tmpCtx.save();
+  tmpCtx.translate(120, 0);
+  tmpCtx.scale(-1, 1);
+  tmpCtx.drawImage(video, sx, sy, sw, sh, 0, 0, 120, 120);
+  tmpCtx.restore();
+
+  const dataUrl = tmpCanvas.toDataURL('image/jpeg', 0.8);
+  person.photos.push({ dataUrl, ts: Date.now() });
+  totalPhotos++;
+  updateStats(null);
+  updateGalleryCard(person);
+}
+
+// ── UI helpers ────────────────────────────────────────────────
+function updateStats(facesInFrame) {
+  if (facesInFrame !== null)
+    document.getElementById('stat-faces').textContent = facesInFrame;
+  document.getElementById('stat-persons').textContent = persons.length;
+  document.getElementById('stat-photos').textContent  = totalPhotos;
+  document.getElementById('gallery-count').textContent =
+    `${persons.length} person${persons.length !== 1 ? 'er' : ''}`;
+}
+
+function setStatus(state, text) {
+  const pill = document.getElementById('status-pill');
+  pill.className = '';
+  pill.classList.add(state === 'active' ? 'active' : state === 'loading' ? 'loading' : state === 'error' ? 'error' : '');
+  document.getElementById('status-text').textContent = text;
+}
+
+function showToast(msg) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.classList.add('show');
+  setTimeout(() => t.classList.remove('show'), 2500);
+}
+
+// ── Galleri ───────────────────────────────────────────────────
+function renderGallery() {
+  const g = document.getElementById('gallery');
+  g.innerHTML = '';
+  if (persons.length === 0) {
+    g.innerHTML = '<div class="empty-state">Starta kameran för att börja detektera ansikten.<br>Klicka på en person för att se sparade bilder.</div>';
+    return;
+  }
+  persons.slice().reverse().forEach(p => {
+    g.appendChild(makeCard(p));
+  });
+}
+
+function makeCard(person) {
+  const card = document.createElement('div');
+  card.className  = 'person-card';
+  card.id         = `card-${person.id}`;
+  card.onclick    = () => openModal(person.id);
+
+  const lastPhoto = person.photos[person.photos.length - 1];
+  const avatarHTML = lastPhoto
+    ? `<img class="person-avatar" src="${lastPhoto.dataUrl}" alt="${person.label}">`
+    : `<div class="person-avatar placeholder" style="border-color:${person.color}">👤</div>`;
+
+  card.innerHTML = `
+    ${avatarHTML}
+    <div class="person-info">
+      <div class="person-name">
+        <span class="person-badge" style="background:${person.color}"></span>
+        ${person.label}
+      </div>
+      <div class="person-meta">${person.photos.length} foto${person.photos.length !== 1 ? 'n' : ''} sparad${person.photos.length !== 1 ? 'e' : ''}</div>
+    </div>
+    <div class="person-arrow">›</div>
+  `;
+  return card;
+}
+
+function updateGalleryCard(person) {
+  const existing = document.getElementById(`card-${person.id}`);
+  const newCard  = makeCard(person);
+  if (existing) existing.replaceWith(newCard);
+  else renderGallery();
+}
+
+// ── Modal ─────────────────────────────────────────────────────
+function openModal(personId) {
+  const person = persons.find(p => p.id === personId);
+  if (!person) return;
+
+  document.getElementById('modal-title').innerHTML =
+    `<span style="color:${person.color}">●</span> ${person.label}`;
+
+  const body = document.getElementById('modal-body');
+  if (person.photos.length === 0) {
+    body.innerHTML = '<div class="modal-empty">Inga foton sparade ännu</div>';
+  } else {
+    body.innerHTML = `
+      <div style="padding:10px 12px;font-size:11px;color:var(--dim);border-bottom:1px solid var(--border)">
+        ${person.photos.length} av ${MAX_PHOTOS} foton
+      </div>
+      <div class="modal-photos">
+        ${person.photos.slice().reverse().map(p =>
+          `<img class="modal-photo" src="${p.dataUrl}" loading="lazy">`
+        ).join('')}
+      </div>
+    `;
+  }
+
+  document.getElementById('modal-overlay').classList.add('open');
+  document.body.style.overflow = 'hidden';
+}
+
+function closeModal(e) {
+  if (e && e.target !== document.getElementById('modal-overlay')) return;
+  document.getElementById('modal-overlay').classList.remove('open');
+  document.body.style.overflow = '';
+}
+
+// ── Rensa ─────────────────────────────────────────────────────
+function clearAll() {
+  persons    = [];
+  pending    = [];
+  nextId     = 1;
+  totalPhotos = 0;
+  updateStats(0);
+  renderGallery();
+  showToast('Allt rensat');
+}
+
+// ── Init ──────────────────────────────────────────────────────
+loadModels();
+</script>
+</body>
+</html>
